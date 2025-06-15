@@ -11,36 +11,42 @@
       font-family: sans-serif;
       background: #111;
       color: white;
-      text-align: center;
       overflow: hidden;
       touch-action: none;
     }
-
     canvas {
       background: #222;
       display: block;
       margin: 0 auto;
       border: 3px solid #fff;
-      touch-action: none;
     }
-
     #score, #timer, #userStats {
       position: absolute;
       font-size: 16px;
-      background: rgba(0,0,0,0.5);
+      background: rgba(0,0,0,0.6);
       padding: 5px 10px;
       border-radius: 8px;
+      z-index: 10;
     }
-
-    #score { top: 10px; left: 10px; }
-    #timer { top: 10px; right: 10px; }
+    #score { top: 10px; left: 20px; }
+    #timer { top: 10px; right: 20px; }
     #userStats {
       top: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+    }
+    #leaderboard {
+      position: absolute;
+      top: 100px;
       right: 10px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 10px;
       text-align: left;
       font-size: 14px;
+      max-width: 150px;
     }
-
     #startBtn {
       margin-top: 20px;
       padding: 12px 24px;
@@ -50,28 +56,9 @@
       border-radius: 8px;
       cursor: pointer;
     }
-
     #gameOver {
-      margin-top: 20px;
+      margin-top: 10px;
       font-size: 18px;
-    }
-
-    #leaderboard {
-      position: absolute;
-      top: 120px;
-      right: 10px;
-      background: rgba(0, 0, 0, 0.6);
-      padding: 8px;
-      border-radius: 10px;
-      font-size: 14px;
-      max-width: 160px;
-      text-align: left;
-    }
-
-    h3 {
-      margin: 0 0 5px 0;
-      font-size: 16px;
-      color: #FFD700;
     }
   </style>
 </head>
@@ -80,9 +67,9 @@
   <div id="score">Score: 0</div>
   <div id="timer">Time: 30</div>
   <div id="userStats">Loading...</div>
+  <div id="leaderboard">Loading leaderboard...</div>
   <button id="startBtn">Start Game</button>
   <div id="gameOver"></div>
-  <div id="leaderboard"></div>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
@@ -93,14 +80,18 @@
     const ctx = canvas.getContext('2d');
     const scoreDiv = document.getElementById('score');
     const timerDiv = document.getElementById('timer');
+    const userStats = document.getElementById('userStats');
+    const leaderboardDiv = document.getElementById('leaderboard');
     const startBtn = document.getElementById('startBtn');
     const gameOverDiv = document.getElementById('gameOver');
-    const leaderboardDiv = document.getElementById('leaderboard');
-    const userStats = document.getElementById('userStats');
 
-    const user = Telegram.WebApp.initDataUnsafe?.user || { id: 'anon', username: 'anonymous' };
+    let user = Telegram.WebApp.initDataUnsafe.user || { id: 'anon', username: 'anonymous' };
 
-    let gameObjects = [], score = 0, timeLeft = 30, playing = false, interval, freezeTimer = 0;
+    let score = 0;
+    let timeLeft = 30;
+    let interval;
+    let playing = false;
+    let gameObjects = [];
 
     class Drop {
       constructor(type = 'ball') {
@@ -108,7 +99,11 @@
         this.y = -20;
         this.radius = 15;
         this.type = type;
-        this.color = { ball: 'lime', bomb: 'red', freeze: 'cyan' }[type];
+        this.color = {
+          ball: 'lime',
+          bomb: 'red',
+          freeze: 'cyan'
+        }[type];
         this.speed = 2 + Math.random() * 2;
       }
       draw() {
@@ -119,9 +114,7 @@
         ctx.closePath();
       }
       update() {
-        if (freezeTimer <= 0) {
-          this.y += this.speed;
-        }
+        this.y += this.speed;
         this.draw();
       }
     }
@@ -135,60 +128,65 @@
     }
 
     function resetGame() {
-      gameObjects = [];
       score = 0;
       timeLeft = 30;
+      gameObjects = [];
       playing = true;
-      gameOverDiv.innerHTML = '';
-      leaderboardDiv.innerHTML = '';
       startBtn.style.display = 'none';
-      freezeTimer = 0;
+      gameOverDiv.innerHTML = '';
       interval = setInterval(() => {
-        if (freezeTimer > 0) freezeTimer--;
         timeLeft--;
         if (timeLeft <= 0) endGame();
       }, 1000);
     }
 
     function endGame() {
-      playing = false;
       clearInterval(interval);
-      gameOverDiv.innerHTML = `Game Over! Final Score: ${score}`;
+      playing = false;
+      gameOverDiv.innerHTML = `Game Over! Score: ${score}`;
       startBtn.style.display = 'block';
       submitScore();
     }
 
-    canvas.addEventListener('click', (e) => {
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (playing && Math.random() < 0.03) spawnDrop();
+
+      gameObjects.forEach((obj, i) => {
+        obj.update();
+        if (obj.y > canvas.height) gameObjects.splice(i, 1);
+      });
+
+      scoreDiv.innerHTML = `Score: ${score}`;
+      timerDiv.innerHTML = `Time: ${timeLeft}`;
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    canvas.addEventListener('click', e => {
       if (!playing) return;
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      gameObjects.forEach((obj, index) => {
+
+      gameObjects.forEach((obj, i) => {
         const dx = x - obj.x;
         const dy = y - obj.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < obj.radius) {
           if (obj.type === 'ball') score += 1;
-          if (obj.type === 'bomb') endGame();
-          if (obj.type === 'freeze') {
-            freezeTimer = 3;
+          else if (obj.type === 'bomb') endGame();
+          else if (obj.type === 'freeze') {
+            let saved = [...gameObjects];
+            gameObjects = [];
+            setTimeout(() => {
+              gameObjects = saved;
+            }, 3000);
           }
-          gameObjects.splice(index, 1);
+          gameObjects.splice(i, 1);
         }
       });
     });
-
-    function gameLoop() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (playing && Math.random() < 0.03) spawnDrop();
-      gameObjects.forEach((obj, index) => {
-        obj.update();
-        if (obj.y > canvas.height) gameObjects.splice(index, 1);
-      });
-      scoreDiv.innerHTML = `Score: ${score}`;
-      timerDiv.innerHTML = `Time: ${timeLeft}`;
-      requestAnimationFrame(gameLoop);
-    }
 
     async function submitScore() {
       try {
@@ -199,26 +197,13 @@
             userId: user.id,
             username: user.username || 'anonymous',
             score,
-            token: backendSecret,
-          }),
+            token: backendSecret
+          })
         });
-        fetchLeaderboard();
         fetchUserStats();
+        fetchLeaderboard();
       } catch (err) {
         console.error('Score submission failed', err);
-      }
-    }
-
-    async function fetchLeaderboard() {
-      try {
-        const res = await fetch(`${backendUrl}/leaderboard`);
-        const top = await res.json();
-        leaderboardDiv.innerHTML = '<h3>🏆 Top 10</h3>' +
-          top.map((entry, i) =>
-            `${i + 1}. ${entry.username || 'anonymous'}: ${entry.totalScore ?? 0}`
-          ).join('<br>');
-      } catch (err) {
-        leaderboardDiv.innerHTML = 'Leaderboard unavailable';
       }
     }
 
@@ -226,18 +211,28 @@
       try {
         const res = await fetch(`${backendUrl}/my-rank?userId=${user.id}`);
         const data = await res.json();
-        userStats.innerHTML =
-          `Rank: ${data.rank ?? '-'}<br>Total: ${data.totalScore ?? 0}<br>Referrals: ${data.referrals ?? 0}`;
-      } catch (err) {
+        userStats.innerHTML = `Rank: ${data.rank || '-'}<br>Total: ${data.totalScore || 0}<br>Referrals: ${data.referrals || 0}`;
+      } catch {
         userStats.innerHTML = 'Rank unavailable';
+      }
+    }
+
+    async function fetchLeaderboard() {
+      try {
+        const res = await fetch(`${backendUrl}/leaderboard`);
+        const data = await res.json();
+        leaderboardDiv.innerHTML = '<strong>Top 10</strong><br>' +
+          data.map((u, i) => `${i + 1}. ${u.username || 'anonymous'}<br>${u.totalScore || 0} pts`).join('<br><br>');
+      } catch {
+        leaderboardDiv.innerHTML = 'Failed to load leaderboard';
       }
     }
 
     startBtn.onclick = () => resetGame();
 
     Telegram.WebApp.ready();
-    fetchLeaderboard();
     fetchUserStats();
+    fetchLeaderboard();
     gameLoop();
   </script>
 </body>
